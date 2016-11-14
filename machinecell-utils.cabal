@@ -18,6 +18,8 @@ library
   exposed-modules:     MachineUtils
                      , GetLogs
                      , ParseCSV
+                     , Server
+                     , Types
   build-depends:       base >= 4.7 && < 5
                      , machinecell
                      , classy-prelude
@@ -35,6 +37,7 @@ library
                      , attoparsec
                      , data-default
                      , servant
+                     , aeson
   default-language:    Haskell2010
 
 executable machinecell-utils-exe

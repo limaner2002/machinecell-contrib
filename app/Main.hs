@@ -11,6 +11,7 @@ import Network.HTTP.Client
 import Control.Monad.Trans.Resource
 import System.IO (hGetEcho, hSetEcho, hFlush, putChar)
 import Path
+import Server
 
 main :: IO ()
 main = do
@@ -18,23 +19,22 @@ main = do
   logName <- parseRelFile $ unpack logNameIn
   logDest <- parseRelDir $ unpack logDestIn
   logSettings <- getUserInput serverUrl logName logDest
-  -- print logSettings
   testIt logSettings
 
 getUserInput :: MonadIO m => Text -> Path Rel File -> Path Rel Dir -> m LogSettings
 getUserInput serverUrl logName logDest =
   LogSettings <$> getInputLine "username: "
               <*> getPassword "password: "
-              <*> pure nodes -- getInputLine "node name to download from: "
-              <*> pure logName -- getInputLine "logfile to download: "
-              <*> pure logDest -- (unpack <$> getInputLine "destination to save logfile to: ")
+              <*> pure nodes
+              <*> pure logName
+              <*> pure logDest
               <*> pure serverUrl
 
 testIt :: LogSettings -> IO ()
 testIt logSettings = do
   mgr <- newManager tlsManagerSettings
   req <- parseUrlThrow url
-  mapM_ (\node -> runRMachine_ (getNode (encodeUtf8 node) >>> login mgr un pw >>> downloadLog (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]) nodes
+  mapM_ (\node -> runRMachine_ (getNode (encodeUtf8 node) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]) nodes
     where
       nodes = nodeNames logSettings
       log = logName logSettings
@@ -43,6 +43,7 @@ testIt logSettings = do
       pw = password logSettings
       saveName node = fromRelFile (dest </> filename log) <> "." <> node
       url = unpack $ logUrl logSettings
+      logUrlBase = url <> "/suite/logs"
 
 getInputLine :: MonadIO m => String -> m Text
 getInputLine prompt = liftIO $ do
