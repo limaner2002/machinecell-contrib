@@ -54,11 +54,14 @@ parseCell csvSettings = parseQuoted <|> parseValue
     parseValue = takeTill (\c -> c == separator csvSettings || c == newlineChar csvSettings) <* (optional $ char (separator csvSettings))
 
 dropHeader :: (MonadThrow m1, Monad m) => ProcessA (Kleisli m) (Event (m1 [Text])) (Event (m1 [Text]))
-dropHeader = constructT kleisli0 $ do
+dropHeader = repeatedlyT kleisli0 $ do
   _ <- await
   loop
  where
    loop = do
-     row <- await
-     yield row
-     loop
+     mRow <- (Just <$> await) `catchP` pure Nothing
+     case mRow of
+       Nothing -> return ()
+       Just row -> do
+         yield row
+         loop

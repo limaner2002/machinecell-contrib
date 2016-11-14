@@ -64,6 +64,8 @@ executable results
                      , data-default
                      , mtl
                      , transformers
+                     , filemanip
+                     , filepath
   default-language:    Haskell2010
 
 test-suite getlogs

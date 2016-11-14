@@ -20,7 +20,9 @@ module MachineUtils
   , runRMachine_
   , sourceHttp_
   , sinkFile
+  , sinkFile_
   , sourceFile
+  , passthroughK
   ) where
 
 import ClassyPrelude hiding (first)
@@ -145,21 +147,33 @@ sourceHttp_ = constructT kleisli0 go
           loop key res bodyReader
 
 sinkFile :: (MonoFoldable a, MonadResource m, IOData a) => FilePath -> ProcessA (Kleisli m) (Event a) (Event ())
-sinkFile fp = constructT kleisli0 $ go
+sinkFile fp = (evMap (const fp) &&& arr id) >>> sinkFile_
+
+sinkFile_ :: (MonoFoldable a, MonadResource m, IOData a) => ProcessA (Kleisli m) (Event FilePath, Event a) (Event ())
+sinkFile_ = tee >>> (constructT kleisli0 $ go Nothing)
   where
-    go = do
-      (key, h) <- lift $ allocate (SIO.openFile fp SIO.WriteMode) SIO.hClose
-      loop key h
-    loop key h = do
+    go :: (MonoFoldable a, MonadResource m, IOData a) => Maybe (ReleaseKey, Handle) -> PlanT (Either FilePath a) () m r
+    go mK = do
       x <- await
-      case onull x of
-        True -> lift $ liftIO $ release key
-        False -> do
-          lift . liftIO $ hPut h x
-          loop key h
+      case x of
+        Left fp ->
+          case mK of
+            Nothing -> openNext fp
+            Just (oldKey, _) -> do
+              lift $ liftIO $ release oldKey
+              openNext fp
+        Right dta ->
+          case mK of
+            Nothing -> undefined
+            Just (key, handle) -> do
+              lift . liftIO $ hPut handle dta
+              go $ Just (key, handle)
+    openNext fp = do
+      k <- lift $ allocate (SIO.openFile fp SIO.WriteMode) (\h -> putStrLn "Closing sinkfile handle" >> SIO.hFlush stdout >> SIO.hClose h)
+      go $ Just k
 
 sourceFile :: (MonoFoldable a, MonadResource m, IOData a) => ProcessA (Kleisli m) (Event FilePath) (Event a)
-sourceFile = constructT kleisli0 go
+sourceFile = repeatedlyT kleisli0 go
   where
     go = do
       fp <- await
@@ -168,7 +182,9 @@ sourceFile = constructT kleisli0 go
     loop key h = do
       x <- lift $ liftIO $ hGetChunk h
       case onull x of
-        True -> lift $ liftIO $ release key
+        True -> do
+          lift $ liftIO $ release key
+          stop
         False -> do
           yield x
           loop key h
@@ -236,3 +252,8 @@ runRMachine_
   :: MonadBaseControl IO m =>
      ProcessA (Kleisli (ResourceT m)) (Event b) (Event c) -> [b] -> m ()
 runRMachine_ machine input = runResourceT $ runMachine_ machine input
+
+passthroughK :: (Monad m) => (a -> m ()) -> Kleisli m a a
+passthroughK act = proc a -> do
+  _ <- Kleisli act -< a
+  returnA -< a

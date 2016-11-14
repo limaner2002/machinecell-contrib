@@ -11,7 +11,6 @@ packages:
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
-- machinecell-3.2.0
 - arrows-0.4.4.1
 - Stream-0.4.7.2
 - lazysmallcheck-0.6

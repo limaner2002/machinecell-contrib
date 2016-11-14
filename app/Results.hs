@@ -2,6 +2,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE Arrows #-}
 
 import ClassyPrelude hiding (filter)
 import Control.Monad.Trans.Resource hiding (throwM)
@@ -13,6 +14,8 @@ import MachineUtils
 import ParseCSV
 import Data.Default
 import Control.Monad.State hiding (mapM_)
+import System.FilePath.Glob
+import System.FilePath
 
 data JMeterReading = JMeterReading
   { timeStamp :: JMeterTimeStamp
@@ -117,28 +120,41 @@ readThrow entry =
 
 main :: IO ()
 main = do
-  (logPath:startTimeIn:endTimeIn:_) <- getArgs
+  (logPathGlob:outputDir:startTimeIn:endTimeIn:_) <- getArgs
+  inFiles <- namesMatching $ unpack logPathGlob
   let eStartTime = readTime startTimeIn
       eEndTime = readTime endTimeIn
+      outFiles = fmap (\x -> unpack outputDir </> takeFileName x) inFiles
   case eStartTime of
     Left err -> print err
     Right startTime -> case eEndTime of
       Left err' -> print err'
       Right endTime ->
         evalStateT (
-          runRMachine_ (
-                       sourceFile
-                   >>> evMap asText
-                   >>> machineParser (parseRow def)
-                   >>> dropHeader
-                   >>> evMap (join . mapM exprDetailsFromRow)
-                   >>> filter (Kleisli $ filterTime 1800 startTime endTime)
-                   >>> machine (mapM_ (putStrLn . showExpressionDetails))) [unpack logPath]
+          runRMachine_ ( readLogs startTime endTime ) (zip inFiles outFiles)
           ) Init
-
   where
     readTime :: Text -> Either SomeException JMeterTimeStamp
     readTime = readJMeterTimeStamp
+
+readLogs :: (MonadResource m, MonadState FilterState m) => JMeterTimeStamp -> JMeterTimeStamp -> ProcessA (Kleisli m) (Event (FilePath, FilePath)) (Event ())
+readLogs startTime endTime = proc input -> do
+  mX <- evMap Just >>> hold Nothing -< input
+  case mX of
+    Nothing -> returnA -< noEvent
+    Just (inFile, outFile) -> do
+      eDta <- edge >>> anytime (passthroughK print) >>> processLog startTime endTime >>> evMap ((<> "\n") . showExpressionDetails . unsafeFromEither) -< inFile
+      res <- (edge *** evMap id) >>> sinkFile_ -< (outFile, eDta)
+      returnA -< res
+  where
+    processLog startTime endTime =
+          sourceFile
+      >>> evMap asText
+      >>> machineParser (parseRow def)
+      >>> dropHeader
+      >>> evMap (join . mapM exprDetailsFromRow)
+      >>> filter (Kleisli $ filterTime 1800 startTime endTime)
+    unsafeFromEither (Right v) = v
 
 isBetween_
   :: JMeterTimeStamp
