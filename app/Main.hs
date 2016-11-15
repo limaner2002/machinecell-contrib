@@ -4,7 +4,7 @@
 module Main where
 
 import ClassyPrelude hiding ((</>))
-import MachineUtils
+import MachineUtils hiding (run)
 import GetLogs
 import Network.HTTP.Client.TLS
 import Network.HTTP.Client
@@ -12,6 +12,7 @@ import Control.Monad.Trans.Resource
 import System.IO (hGetEcho, hSetEcho, hFlush, putChar)
 import Path
 import Server
+import Network.Wai.Handler.Warp (run)
 
 main :: IO ()
 main = do

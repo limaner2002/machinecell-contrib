@@ -12,8 +12,8 @@ data LogSettings = LogSettings
   { username :: Text
   , password :: Text
   , nodeNames :: [Text]
-  , logName :: Path Rel File
-  , logDestination :: Path Rel Dir
+  , logName :: Maybe (Path Rel File)
+  , logDestination :: Maybe (Path Rel Dir)
   , logUrl :: Text
   } deriving (Show, Generic)
 
@@ -25,3 +25,4 @@ newtype Confirmation = Confirmation Text
 
 instance ToJSON Confirmation
 instance FromJSON Confirmation
+

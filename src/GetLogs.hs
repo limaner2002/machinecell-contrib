@@ -85,10 +85,10 @@ insertCookies cookies req = do
 getServerSession :: Kleisli (ResourceT IO) (Manager, String) [Cookie]
 getServerSession = getCookie >>> destroyCookies >>> extractSession
 
-passthroughK :: (Monad m) => (a -> m ()) -> Kleisli m a a
-passthroughK act = proc a -> do
-  _ <- Kleisli act -< a
-  returnA -< a
+-- passthroughK :: (Monad m) => (a -> m ()) -> Kleisli m a a
+-- passthroughK act = proc a -> do
+--   _ <- Kleisli act -< a
+--   returnA -< a
 
 printRequesting :: (MonadIO m) => Kleisli m (a, String) (a, String)
 printRequesting = passthroughK (\(_, url) -> putStrLn $ "Making request to: " <> tshow url)
