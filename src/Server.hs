@@ -10,11 +10,16 @@
 
 module Server where
 
-import ClassyPrelude
+import ClassyPrelude hiding (Handler)
 
 import Data.Aeson
 import Servant
 import Types
+import Lucid
+import qualified Data.ByteString.Lazy as BL
+import Network.HTTP.Media ((//), (/:))
+import Network.Wai
+import Network.Wai.Handler.Warp
 
 type API = Get '[HTMLLucid] HomePage
   :<|> "submit" :> ReqBody '[JSON] LogSettings :> Post '[JSON] Confirmation
@@ -56,13 +61,13 @@ homeAPI = Proxy
 
 homepage = HomePage $ fmap (\x -> "http://10.0.1.242:8081/scripts/" <> x) ["rts.js", "lib.js", "out.js"]
 
-checkLogSettingns :: LogSettings -> Handler Confirmation
+checkLogSettings :: LogSettings -> Handler Confirmation
 checkLogSettings logSettings = return $ Confirmation msg
   where
     msg = "Received " <> tshow logSettings
 
 server :: Server API
-server = return $ homepage
+server = return homepage
   :<|> checkLogSettings
 
 app :: Application
