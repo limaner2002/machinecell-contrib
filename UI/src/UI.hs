@@ -24,23 +24,25 @@ purePasswordInput ph = textInput $ def
 
 logSettingsForm :: MonadWidget t m => m (Dynamic t (Either SomeException LogSettings), Event t ())
 logSettingsForm = do
-  un <- mapDyn pack =<< value <$> pureTextInput "Username"
-  el "br" blank
-  pw <- mapDyn pack =<< value <$> purePasswordInput "Password"
-  el "br" blank
-  nodes <- mapDyn (fmap pack . splitElem ',') =<< value <$> pureTextInput "Nodes"
-  el "br" blank
-  lName <- mapDyn parseRelFile =<< value <$> pureTextInput "Logfile Name"
-  el "br" blank
-  hostUrl <- mapDyn pack =<< value <$> pureTextInput "Server URL"
-  el "br" blank
-  click <- pureButton "Submit"
+  d5 <- elAttr "form" ("class" =: "pure-form") $ do
+    un <- mapDyn pack =<< value <$> pureTextInput "Username"
+    el "br" blank
+    pw <- mapDyn pack =<< value <$> purePasswordInput "Password"
+    el "br" blank
+    nodes <- mapDyn (fmap pack . splitElem ',') =<< value <$> pureTextInput "Nodes"
+    el "br" blank
+    lName <- mapDyn parseRelFile =<< value <$> pureTextInput "Logfile Name"
+    el "br" blank
+    hostUrl <- mapDyn pack =<< value <$> pureTextInput "Server URL"
+    el "br" blank
 
-  d1 <- combineDyn LogSettings un pw
-  d2 <- combineDyn (\x y -> x y) d1 nodes
-  d3 <- combineDyn (\x y -> x <$> y) d2 lName
-  d4 <- combineDyn (\x y -> x <*> y) d3 (constDyn $ parseRelDir "logs/")
-  d5 <- combineDyn (\x y -> x <*> pure y) d4 hostUrl
+    d1 <- combineDyn LogSettings un pw
+    d2 <- combineDyn (\x y -> x y) d1 nodes
+    d3 <- combineDyn (\x y -> x <$> y) d2 lName
+    d4 <- combineDyn (\x y -> x <*> y) d3 (constDyn $ parseRelDir "logs/")
+    combineDyn (\x y -> x <*> pure y) d4 hostUrl
+
+  click <- pureButton "Submit"
   return (d5, click)
 
 testXhr :: MonadWidget t m => Dynamic t LogSettings -> Event t () -> m ()
