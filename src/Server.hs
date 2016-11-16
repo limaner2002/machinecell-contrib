@@ -11,7 +11,7 @@
 
 module Server where
 
-import ClassyPrelude hiding (Handler)
+import ClassyPrelude hiding (Handler, (</>))
 
 import Data.Aeson
 import Servant
@@ -22,6 +22,7 @@ import Network.HTTP.Media ((//), (/:))
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Path
+import GetLogs (downloadLogs)
 
 type HomePageAPI = Get '[HTMLLucid] HomePage
 type SubmitAPI = "submit" :> ReqBody '[JSON] LogSettings :> Post '[JSON] Confirmation
@@ -83,32 +84,40 @@ proxyAPI = Proxy
 homepage = HomePage $ fmap (tshow . scriptLink) [rtsJS, libJS, outJS]
 
 checkLogSettings :: LogSettings -> Handler Confirmation
-checkLogSettings logSettings = return $ Confirmation $ msg log
-  where
-    msg (Just lName) = "Received request for " <> pack (fromRelFile lName) <> " from " <> url
-    msg Nothing = "Invalid logFile name!"
-    log = logName logSettings
-    url = logUrl logSettings
+checkLogSettings logSettings = do
+  msgResult <- liftIO $ do
+    print $ "Received: " <> tshow logSettings
+    print "Downloading logs now"
+    res <- tryAny $ downloadLogs logSettings
+    case res of
+      Left e -> return $ tshow e
+      Right () -> return "Successfully downloaded the logs"
+  return $ Confirmation $ msgResult
+  -- where
+  --   msg (Just lName) = "Received request for " <> pack (fromRelFile lName) <> " from " <> url
+  --   msg Nothing = "Invalid logFile name!"
+  --   log = logName logSettings
+  --   url = logUrl logSettings
 
-serveFile :: Path Rel File -> Handler BL.ByteString
-serveFile fName = do
-  eBS <- tryAny . readFile $ "UI.jsexe/" <> fromRelFile fName
+serveFile :: Path Rel Dir -> Path Rel File -> Handler BL.ByteString
+serveFile scriptsDir fName = do
+  eBS <- tryAny . readFile . fromRelFile $ scriptsDir </> fName
   case eBS of
     Left _ -> return "Resource not found"
     Right bs -> return bs
 
-server :: Server API
-server = return homepage
+server :: Path Rel Dir -> Server API
+server scriptsDir = return homepage
   :<|> checkLogSettings
-  :<|> serveFile
+  :<|> serveFile scriptsDir
 
 scriptLink :: Path Rel File -> URI
 scriptLink = safeLink proxyAPI scpt
   where
     scpt = Proxy :: Proxy ScriptsAPI
 
-app :: Application
-app = serve proxyAPI server
+app ::Path Rel Dir -> Application
+app scriptsDir = serve proxyAPI (server scriptsDir)
 
 rtsJS = $(mkRelFile "rts.js")
 libJS = $(mkRelFile "lib.js")

@@ -5,7 +5,7 @@
 
 module GetLogs where
 
-import ClassyPrelude
+import ClassyPrelude hiding ((</>))
 import Control.Monad.Trans.Resource hiding (throwM)
 import Control.Arrow
 import Network.HTTP.Client
@@ -15,6 +15,8 @@ import Data.Conduit hiding (await, yield)
 import MachineUtils hiding (filter)
 import Network.HTTP.Types.Header
 import Text.XML.HXT.Core hiding (trace, getNode)
+import Types
+import Path
 
 getCookie :: MonadResource m => Kleisli m (Manager, String) CookieJar
 getCookie = Kleisli (\(mgr, url) -> do
@@ -147,3 +149,26 @@ instance Exception NoTokenException
 cookieHasName :: ArrowList a => ByteString -> a Cookie Cookie
 cookieHasName str = isA (\c -> cookie_name c == str)
 
+downloadLogs :: LogSettings -> IO ()
+downloadLogs logSettings = do
+  mgr <- newManager tlsManagerSettings
+  req <- parseUrlThrow url
+  mapM_ (downloadThem mgr req) nodes
+    where
+      nodes = nodeNames logSettings
+      mLog = logName logSettings
+      mDest = logDestination logSettings
+      un = username logSettings
+      pw = password logSettings
+      url = unpack $ logUrl logSettings
+      logUrlBase = url <> "/suite/logs"
+      downloadThem mgr req node =
+        case mLog of
+          Nothing -> putStrLn $ "Invalid log name: " <> tshow mLog
+          Just log ->
+            case mDest of
+              Nothing -> putStrLn $ "Invalid destination: " <> tshow mDest
+              Just dest ->
+                runRMachine_ (getNode (encodeUtf8 node) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]
+                where
+                  saveName node = fromRelFile (dest </> filename log) <> "." <> node

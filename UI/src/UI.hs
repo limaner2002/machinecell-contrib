@@ -1,7 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
--- module UI where
+module UI where
 
 import Types
 import ClassyPrelude
@@ -101,6 +101,3 @@ head = do
   elAttr "link" ( "rel" =: "stylesheet"
                <> "href" =: "http://yui.yahooapis.com/pure/0.6.0/pure-min.css"
                 ) blank
-
-main :: IO ()
-main = mainWidgetWithHead Main.head doIt
