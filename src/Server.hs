@@ -23,9 +23,10 @@ import Network.Wai
 import Network.Wai.Handler.Warp
 import Path
 import GetLogs (downloadLogs)
+import MachineUtils
 
 type HomePageAPI = Get '[HTMLLucid] HomePage
-type SubmitAPI = "submit" :> ReqBody '[JSON] LogSettings :> Post '[JSON] Confirmation
+type SubmitAPI = "submit" :> ReqBody '[JSON] LogSettings :> Post '[JSON] SubmitStatus
 type ScriptsAPI = "scripts" :> Capture "fileName" (Path Rel File) :> Get '[Javascript] BL.ByteString
 
 type API = HomePageAPI
@@ -83,21 +84,23 @@ proxyAPI = Proxy
 
 homepage = HomePage $ fmap (tshow . scriptLink) [rtsJS, libJS, outJS]
 
-checkLogSettings :: LogSettings -> Handler Confirmation
+checkLogSettings :: LogSettings -> Handler SubmitStatus
 checkLogSettings logSettings = do
-  msgResult <- liftIO $ do
+  liftIO $ do
     print $ "Received: " <> tshow logSettings
     print "Downloading logs now"
     res <- tryAny $ downloadLogs logSettings
     case res of
-      Left e -> return $ tshow e
-      Right () -> return "Successfully downloaded the logs"
-  return $ Confirmation $ msgResult
-  -- where
-  --   msg (Just lName) = "Received request for " <> pack (fromRelFile lName) <> " from " <> url
-  --   msg Nothing = "Invalid logFile name!"
-  --   log = logName logSettings
-  --   url = logUrl logSettings
+      Left e -> do
+        print e
+        return $ SubmissionError $ tshow e
+      Right () -> do
+        putStrLn "Successfully downloaded the logs"
+        -- return $ Confirmation "Successfully downloaded the logs"
+        mDirContents <- liftIO $ mapM (\dest -> runRMachine (sourceDirectory >>> evMap (asText . pack)) [fromRelDir dest]) $ logDestination logSettings
+        case mDirContents of
+          Nothing -> return $ SubmissionError "Could not get the log files"
+          Just dirContents -> return $ Confirmation dirContents
 
 serveFile :: Path Rel Dir -> Path Rel File -> Handler BL.ByteString
 serveFile scriptsDir fName = do

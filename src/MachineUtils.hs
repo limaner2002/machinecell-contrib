@@ -23,6 +23,7 @@ module MachineUtils
   , sinkFile_
   , sourceFile
   , passthroughK
+  , sourceDirectory
   ) where
 
 import ClassyPrelude hiding (first)
@@ -39,6 +40,7 @@ import Network.HTTP.Simple
 import Numeric
 import System.Console.ANSI
 import Control.Monad.Base
+import qualified Data.Streaming.Filesystem as F
 
 sink :: (Show a, MonadIO m) => (a -> m ()) -> ProcessA (Kleisli m) (Event a) (Event ())
 sink act = repeatedlyT kleisli0 $ do
@@ -147,7 +149,16 @@ sourceHttp_ = constructT kleisli0 go
           loop key res bodyReader
 
 sinkFile :: (MonoFoldable a, MonadResource m, IOData a) => FilePath -> ProcessA (Kleisli m) (Event a) (Event ())
-sinkFile fp = (evMap (const fp) &&& arr id) >>> sinkFile_
+sinkFile fp = proc input -> do
+  x <- edge -< fp
+  res <- sinkFile_ -< (x, input)
+  returnA -< res
+
+testIt :: (MonoFoldable a, MonadResource m, IOData a) => FilePath -> ProcessA (Kleisli m) (Event a) (Event ())
+testIt fp = proc input -> do
+  x <- edge -< fp
+  res <- sinkFile_ -< (x, input)
+  returnA -< res
 
 sinkFile_ :: (MonoFoldable a, MonadResource m, IOData a) => ProcessA (Kleisli m) (Event FilePath, Event a) (Event ())
 sinkFile_ = tee >>> (constructT kleisli0 $ go Nothing)
@@ -169,7 +180,7 @@ sinkFile_ = tee >>> (constructT kleisli0 $ go Nothing)
               lift . liftIO $ hPut handle dta
               go $ Just (key, handle)
     openNext fp = do
-      k <- lift $ allocate (SIO.openFile fp SIO.WriteMode) (\h -> putStrLn "Closing sinkfile handle" >> SIO.hFlush stdout >> SIO.hClose h)
+      k <- lift $ allocate (putStrLn "Opening file" >> SIO.openFile fp SIO.WriteMode) (\h -> putStrLn "Closing sinkfile handle" >> SIO.hFlush stdout >> SIO.hClose h)
       go $ Just k
 
 sourceFile :: (MonoFoldable a, MonadResource m, IOData a) => ProcessA (Kleisli m) (Event FilePath) (Event a)
@@ -188,6 +199,24 @@ sourceFile = repeatedlyT kleisli0 go
         False -> do
           yield x
           loop key h
+
+sourceDirectory :: (MonadResource m, MonadMask m) => ProcessA (Kleisli m) (Event FilePath) (Event FilePath)
+sourceDirectory = repeatedlyT kleisli0 go
+  where
+    go = do
+      dir <- await
+      (key, ds) <- lift $ allocate (F.openDirStream dir) (F.closeDirStream)
+      loop dir ds
+      lift . liftIO $ release key
+    loop dir ds = do
+      mfp <- lift . liftIO $ F.readDirStream ds
+      case mfp of
+        Nothing -> return ()
+        Just fp -> do
+          yield $ dir </> fp
+          loop dir ds
+      
+      
 
 inputCommand :: (MonadIO m, Read a) => ProcessA (Kleisli m) (Event ()) (Event a)
 inputCommand = constructT kleisli0 go

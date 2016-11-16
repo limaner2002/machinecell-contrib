@@ -20,9 +20,12 @@ data LogSettings = LogSettings
 instance ToJSON LogSettings
 instance FromJSON LogSettings
 
-newtype Confirmation = Confirmation Text
+data SubmitStatus
+  = Confirmation [Text]
+  | Submitted
+  | SubmissionError Text
   deriving (Show, Generic)
 
-instance ToJSON Confirmation
-instance FromJSON Confirmation
+instance ToJSON SubmitStatus
+instance FromJSON SubmitStatus
 

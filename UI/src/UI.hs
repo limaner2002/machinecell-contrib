@@ -76,7 +76,7 @@ testXhr logSettings click = do
   dyn =<< mapDyn (text . show :: MonadWidget t m => Int -> m ()) dn
   asyncReq <- performRequestAsync evt
   resp <- holdDyn Nothing $ fmap _xhrResponse_responseText asyncReq
-  received <- mapDyn (fmap asText . join . fmap decodeText) resp
+  received <- mapDyn (fmap asSubmitStatus . join . fmap decodeText) resp
   el "br" blank
   el "div" $ dyn =<< mapDyn ((text . show)) received
   blank
@@ -101,3 +101,6 @@ head = do
   elAttr "link" ( "rel" =: "stylesheet"
                <> "href" =: "http://yui.yahooapis.com/pure/0.6.0/pure-min.css"
                 ) blank
+
+asSubmitStatus :: SubmitStatus -> SubmitStatus
+asSubmitStatus = id
