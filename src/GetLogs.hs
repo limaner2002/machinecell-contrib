@@ -14,7 +14,7 @@ import Network.HTTP.Simple
 import Data.Conduit hiding (await, yield)
 import MachineUtils hiding (filter)
 import Network.HTTP.Types.Header
-import Text.XML.HXT.Core hiding (trace, getNode)
+import Text.XML.HXT.Core hiding (trace, getNode, setNode)
 import Types
 import Path
 
@@ -43,16 +43,63 @@ extractSession = arr (filter (\c -> cookie_name c == "JSESSIONID"))
 extractNode :: Arrow a => a [Cookie] [ByteString]
 extractNode = arr (concat . fmap (drop 1 . splitSeq "." . cookie_value))
 
+setNode :: Arrow a => ByteString -> a [Cookie] [Cookie]
+setNode nodeName = arr (fmap replaceName)
+  where
+    pred :: Cookie -> ByteString
+    pred = concat . take 1 . splitSeq "." . cookie_value
+    replaceName :: Cookie -> Cookie
+    replaceName cookie = cookie { cookie_value = pred cookie <> "." <> nodeName }
+
+replaceSessionCookie :: Arrow a => a (Cookie, CookieJar) CookieJar
+replaceSessionCookie = arr (\(c, cj) -> insertCheckedCookie c cj True)
+
+replaceCookieJar:: Arrow a => ByteString -> a CookieJar CookieJar
+replaceCookieJar nodeName = proc cj -> do
+  newCookie <- destroyCookies >>> extractSession >>> setNode nodeName >>> arr headEx -< cj
+  newJar <- replaceSessionCookie -< (newCookie, cj)
+  returnA -< newJar
+
+    -- TODO: This should be able to handle missing cookies and incorrect node names
 getNode :: MonadResource m => ByteString -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
 getNode nodeName = switch pred evt
   where
+    pred :: MonadResource m => ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader), Event (ReleaseKey, Response BodyReader))
     pred = proc x -> do
       resp <- makeRequest -< x
       returnA -< (noEvent, resp)
+    evt :: MonadResource m => (ReleaseKey, Response BodyReader) -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
     evt resp
       | any (== nodeName) (getNodeName resp) = evMap (const resp)
       | otherwise = getNode nodeName
     getNodeName = arr snd >>> arr (responseCookieJar) >>> destroyCookies >>> extractSession >>> extractNode
+
+test :: (MonadResource m, MonadIO m) => ByteString -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
+test nodeName = repeatedlyT kleisli0 go
+  where
+    go = do
+      (req, mgr) <- await
+      loop req mgr
+    loop req mgr = do
+      (key, respBody) <- lift (runKleisli makeRequest_ (req, mgr))
+      case any (== nodeName) (currNode respBody) of
+        True -> yield (key, respBody)
+        False -> do
+          newReq <- lift $ insertCookies (newCJ respBody) req
+          loop req mgr
+
+    session = responseCookieJar >>> destroyCookies >>> extractSession
+    currNode = session >>> extractNode
+    newCJ = responseCookieJar >>> replaceCookieJar nodeName
+
+--   cj <- evMap snd >>> evMap responseCookieJar >>> anytime (replaceCookieJar nodeName) >>> hold mempty -< resp
+--   mReq <- evMap snd >>> evMap Just >>> hold Nothing -< x
+--   case mReq of
+--     Nothing -> returnA -< resp
+--     Just req -> do
+--       res <- edge -< (cj, req)
+--       returnA -< _
+-- -- updateRequest :: MonadIO m => Kleisli m (Request, Manager) (Request, Manager)
 
 getNode' nodeName = doTill (any (== nodeName)) (getCookie >>> destroyCookies >>> extractSession >>> extractNode)
 
@@ -78,6 +125,9 @@ loginReq baseUrl mgr un pw (key, resp) = do
   where
     cookieJar = responseCookieJar resp
     csrfToken = fmap (\(name, value) -> (name, Just value)) (getCSRFToken cookieJar)
+
+insertCookies_ :: MonadIO m => Kleisli m (CookieJar, Request) Request
+insertCookies_ = Kleisli (uncurry insertCookies)
 
 insertCookies :: MonadIO m => CookieJar -> Request -> m Request
 insertCookies cookies req = do
@@ -169,6 +219,6 @@ downloadLogs logSettings = do
             case mDest of
               Nothing -> putStrLn $ "Invalid destination: " <> tshow mDest
               Just dest ->
-                runRMachine_ (getNode (encodeUtf8 node) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]
+                runRMachine_ (test (encodeUtf8 node) >>> anytime (passthroughK (const $ putStrLn "Logging in to desired node")) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]
                 where
                   saveName node = fromRelFile (dest </> filename log) <> "." <> node

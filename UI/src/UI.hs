@@ -73,6 +73,7 @@ testXhr logSettings click = do
       reqCfg = def { _xhrRequestConfig_headers = ("Content-type" =: "application/json")
                 }
   dn <- count evt
+  el "br" blank
   dyn =<< mapDyn (text . show :: MonadWidget t m => Int -> m ()) dn
   asyncReq <- performRequestAsync evt
   resp <- holdDyn Nothing $ fmap _xhrResponse_responseText asyncReq
@@ -82,14 +83,14 @@ testXhr logSettings click = do
   blank
 
 createRequest :: (LogSettings, XhrRequestConfig) -> XhrRequest
-createRequest (info, cfg) = xhrRequest "POST" "http://localhost:8081/submit" cfg'
+createRequest (info, cfg) = xhrRequest "POST" "http://10.102.5.70:8081/submit" cfg'
   where
     cfg' = cfg { _xhrRequestConfig_sendData = Just . unpack . decodeUtf8 . toStrict $ encode info }
 
 doIt :: MonadWidget t m => m ()
 doIt = do
   (logSettings, click) <- logSettingsForm
-  dynText =<< mapDyn show logSettings
+  -- dynText =<< mapDyn show logSettings
   testXhr logSettings click
 
 handleMSettings :: MonadSample t m => Maybe LogSettings -> m LogSettings

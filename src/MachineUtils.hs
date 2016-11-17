@@ -117,7 +117,7 @@ downloadHttp :: MonadResource m =>
        -- (Kleisli m) (Event (Request, Manager)) (Event (), Event ())
      (Kleisli m) (Event (Response BodyReader, ByteString)) (Event (), Event ())
 downloadHttp fp = anytime getTotalSize >>> construct getProgress
-  >>> (evMap fst >>> machine showItSink)
+  >>> (evMap fst >>> machine showItSink >>> machine (const $ liftIO $ SIO.hFlush stdout))
   &&& (evMap snd >>> sinkFile fp)
 
 f :: ArrowApply a => ProcessA a (Event Integer) (Event Integer)
