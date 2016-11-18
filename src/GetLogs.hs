@@ -60,22 +60,10 @@ replaceCookieJar nodeName = proc cj -> do
   newJar <- replaceSessionCookie -< (newCookie, cj)
   returnA -< newJar
 
-    -- TODO: This should be able to handle missing cookies and incorrect node names
-getNode :: MonadResource m => ByteString -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
-getNode nodeName = switch pred evt
-  where
-    pred :: MonadResource m => ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader), Event (ReleaseKey, Response BodyReader))
-    pred = proc x -> do
-      resp <- makeRequest -< x
-      returnA -< (noEvent, resp)
-    evt :: MonadResource m => (ReleaseKey, Response BodyReader) -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
-    evt resp
-      | any (== nodeName) (getNodeName resp) = evMap (const resp)
-      | otherwise = getNode nodeName
-    getNodeName = arr snd >>> arr (responseCookieJar) >>> destroyCookies >>> extractSession >>> extractNode
 
-test :: (MonadResource m, MonadIO m) => ByteString -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
-test nodeName = repeatedlyT kleisli0 go
+    -- TODO: This should be able to handle missing cookies and incorrect node names
+getNode :: (MonadResource m, MonadIO m) => ByteString -> ProcessA (Kleisli m) (Event (Request, Manager)) (Event (ReleaseKey, Response BodyReader))
+getNode nodeName = repeatedlyT kleisli0 go
   where
     go = do
       (req, mgr) <- await
@@ -91,15 +79,6 @@ test nodeName = repeatedlyT kleisli0 go
     session = responseCookieJar >>> destroyCookies >>> extractSession
     currNode = session >>> extractNode
     newCJ = responseCookieJar >>> replaceCookieJar nodeName
-
---   cj <- evMap snd >>> evMap responseCookieJar >>> anytime (replaceCookieJar nodeName) >>> hold mempty -< resp
---   mReq <- evMap snd >>> evMap Just >>> hold Nothing -< x
---   case mReq of
---     Nothing -> returnA -< resp
---     Just req -> do
---       res <- edge -< (cj, req)
---       returnA -< _
--- -- updateRequest :: MonadIO m => Kleisli m (Request, Manager) (Request, Manager)
 
 getNode' nodeName = doTill (any (== nodeName)) (getCookie >>> destroyCookies >>> extractSession >>> extractNode)
 
@@ -219,6 +198,6 @@ downloadLogs logSettings = do
             case mDest of
               Nothing -> putStrLn $ "Invalid destination: " <> tshow mDest
               Just dest ->
-                runRMachine_ (test (encodeUtf8 node) >>> anytime (passthroughK (const $ putStrLn "Logging in to desired node")) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]
+                runRMachine_ (getNode (encodeUtf8 node) >>> anytime (passthroughK (const $ putStrLn "Logging in to desired node")) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]
                 where
                   saveName node = fromRelFile (dest </> filename log) <> "." <> node
