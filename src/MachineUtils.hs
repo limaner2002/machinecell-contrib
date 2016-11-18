@@ -26,7 +26,7 @@ module MachineUtils
   , sourceDirectory
   ) where
 
-import ClassyPrelude hiding (first)
+import ClassyPrelude hiding (first, race_)
 import Control.Arrow.Machine
 import Control.Arrow
 import Network
@@ -41,6 +41,8 @@ import Numeric
 import System.Console.ANSI
 import Control.Monad.Base
 import qualified Data.Streaming.Filesystem as F
+import Control.Concurrent.Async.Lifted
+import Data.Time
 
 sink :: (Show a, MonadIO m) => (a -> m ()) -> ProcessA (Kleisli m) (Event a) (Event ())
 sink act = repeatedlyT kleisli0 $ do
@@ -248,21 +250,45 @@ instance Exception NothingYet
 machine f = anytime (kleisli f)
 
 sampleOn :: (MonadIO m, MonadBase IO m) => Int
-  -> a
   -> ProcessA (Kleisli m) (Event a) (Event a)
-sampleOn ival v = proc x -> do
-  res <- hold v -< x
-  sample <- evMap (const ()) >>> every ival -< x
-  returnA -< res <$ sample
+sampleOn ival = proc x -> do
+  evt <- every ival -< x
+  evt' <- tee >>> tag -< (x, evt)
+  returnA -< evt'
 
-every :: (MonadIO m, MonadBase IO m) => Int -> ProcessA (Kleisli m) (Event a) (Event a)
+tag :: Monad m => ProcessA (Kleisli m) (Event (Either a b)) (Event a)
+tag = constructT kleisli0 go
+  where
+    go = do
+      e <- await
+      case e of
+        Left x -> do
+          yield x
+          loop x
+        Right _ -> go
+    loop x = do
+      e <- await
+      case e of
+        Left x' -> loop x'
+        Right _ -> do
+          yield x
+          loop x
+
+every :: (MonadIO m, MonadBase IO m) => Int -> ProcessA (Kleisli m) (Event a) (Event ())
 every ival = constructT kleisli0 go
   where
     go = do
-      v <- await
-      lift $ liftIO $ threadDelay ival
-      yield v
-      go
+      currentTime <- lift . liftIO $ getCurrentTime
+      loop currentTime
+    loop oldTime = do
+      _ <- await
+      currentTime <- lift . liftIO $ getCurrentTime
+      let diffPicoSeconds = diffTimeToPicoseconds . fromRational . toRational $ diffUTCTime currentTime oldTime
+      case diffPicoSeconds >= (fromIntegral ival) * 1000000 of
+        True -> do
+          yield ()
+          loop currentTime
+        False -> loop oldTime
 
 runMachine :: Monad m => ProcessA (Kleisli m) (Event b) (Event c) -> [b] -> m [c]
 runMachine = runKleisli . run
@@ -286,3 +312,4 @@ passthroughK :: (Monad m) => (a -> m ()) -> Kleisli m a a
 passthroughK act = proc a -> do
   _ <- Kleisli act -< a
   returnA -< a
+
