@@ -1,0 +1,37 @@
+name:                UI
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            https://github.com/githubuser/machinecell-utils#readme
+license:             BSD3
+-- license-file:        LICENSE
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2016 Author name here
+category:            Web
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     UI
+  build-depends:       base >= 4.7 && < 5
+                     , bytestring
+                     , classy-prelude
+                     , data-default
+                     , path
+                     , aeson
+                     , reflex
+                     , reflex-dom
+  default-language:    Haskell2010
+
+executable ui
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , UI
+                     , reflex-dom
+  default-language:    Haskell2010
+
