@@ -45,6 +45,7 @@ library
                      , wai
                      , warp
                      , path
+                     , time
   default-language:    Haskell2010
 
 executable get-logs

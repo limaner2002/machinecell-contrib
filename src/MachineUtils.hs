@@ -41,8 +41,8 @@ import Numeric
 import System.Console.ANSI
 import Control.Monad.Base
 import qualified Data.Streaming.Filesystem as F
-import Control.Concurrent.Async.Lifted
 import Data.Time
+import Data.Default
 
 sink :: (Show a, MonadIO m) => (a -> m ()) -> ProcessA (Kleisli m) (Event a) (Event ())
 sink act = repeatedlyT kleisli0 $ do
@@ -97,6 +97,9 @@ instance Show DownloadProgress where
     where
       progress = (fromInteger soFar / fromInteger total) * 100
 
+instance Default DownloadProgress where
+  def = DownloadProgress (TotalSize 0) (SoFar 0)
+
 newtype TotalSize = TotalSize Integer
 newtype SoFar = SoFar Integer
 
@@ -119,7 +122,7 @@ downloadHttp :: MonadResource m =>
        -- (Kleisli m) (Event (Request, Manager)) (Event (), Event ())
      (Kleisli m) (Event (Response BodyReader, ByteString)) (Event (), Event ())
 downloadHttp fp = anytime getTotalSize >>> construct getProgress
-  >>> (evMap fst >>> machine showItSink >>> machine (const $ liftIO $ SIO.hFlush stdout))
+  >>> (sampleOn 100000 >>> evMap fst >>> evMap (fromMaybe def) >>> machine showItSink >>> machine (const $ liftIO $ SIO.hFlush stdout))
   &&& (evMap snd >>> sinkFile fp)
 
 f :: ArrowApply a => ProcessA a (Event Integer) (Event Integer)
@@ -267,12 +270,15 @@ tag = constructT kleisli0 go
           loop x
         Right _ -> go
     loop x = do
-      e <- await
-      case e of
-        Left x' -> loop x'
-        Right _ -> do
-          yield x
-          loop x
+      mE <- (Just <$> await) `catchP` pure Nothing
+      case mE of
+        Nothing -> yield x
+        Just e ->
+          case e of
+            Left x' -> loop x'
+            Right _ -> do
+              yield x
+              loop x
 
 every :: (MonadIO m, MonadBase IO m) => Int -> ProcessA (Kleisli m) (Event a) (Event ())
 every ival = constructT kleisli0 go

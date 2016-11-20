@@ -28,10 +28,12 @@ import MachineUtils
 type HomePageAPI = Get '[HTMLLucid] HomePage
 type SubmitAPI = "submit" :> ReqBody '[JSON] LogSettings :> Post '[JSON] SubmitStatus
 type ScriptsAPI = "scripts" :> Capture "fileName" (Path Rel File) :> Get '[Javascript] BL.ByteString
+type LogsAPI = "logs" :> Capture "fileName" (Path Rel File) :> Get '[Javascript] BL.ByteString
 
 type API = HomePageAPI
   :<|> SubmitAPI
   :<|> ScriptsAPI
+  :<|> LogsAPI
 
 data HomePage = HomePage
   { scripts :: [Text]
@@ -87,7 +89,6 @@ homepage = HomePage $ fmap (tshow . scriptLink) [rtsJS, libJS, outJS]
 checkLogSettings :: LogSettings -> Handler SubmitStatus
 checkLogSettings logSettings = do
   liftIO $ do
-    print $ "Received: " <> tshow logSettings
     print "Downloading logs now"
     res <- tryAny $ downloadLogs logSettings
     case res of
@@ -97,10 +98,10 @@ checkLogSettings logSettings = do
       Right () -> do
         putStrLn "Successfully downloaded the logs"
         -- return $ Confirmation "Successfully downloaded the logs"
-        mDirContents <- liftIO $ mapM (\dest -> runRMachine (sourceDirectory >>> evMap (asText . pack)) [fromRelDir dest]) $ logDestination logSettings
+        mDirContents <- liftIO $ mapM (\dest -> runRMachine (sourceDirectory >>> evMap parseRelFile >>> evMap (fmap filename) >>> evMap asList) [fromRelDir dest]) $ logDestination logSettings
         case mDirContents of
           Nothing -> return $ SubmissionError "Could not get the log files"
-          Just dirContents -> return $ Confirmation dirContents
+          Just dirContents -> return $ Confirmation $ concat dirContents
 
 serveFile :: Path Rel Dir -> Path Rel File -> Handler BL.ByteString
 serveFile scriptsDir fName = do
@@ -113,6 +114,7 @@ server :: Path Rel Dir -> Server API
 server scriptsDir = return homepage
   :<|> checkLogSettings
   :<|> serveFile scriptsDir
+  :<|> serveFile logDir
 
 scriptLink :: Path Rel File -> URI
 scriptLink = safeLink proxyAPI scpt
@@ -125,3 +127,5 @@ app scriptsDir = serve proxyAPI (server scriptsDir)
 rtsJS = $(mkRelFile "rts.js")
 libJS = $(mkRelFile "lib.js")
 outJS = $(mkRelFile "out.js")
+
+logDir = $(mkRelDir "logs")

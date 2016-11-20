@@ -79,11 +79,20 @@ testXhr logSettings click = do
   resp <- holdDyn Nothing $ fmap _xhrResponse_responseText asyncReq
   received <- mapDyn (fmap asSubmitStatus . join . fmap decodeText) resp
   el "br" blank
-  el "div" $ dyn =<< mapDyn ((text . show)) received
+  dyn =<< mapDyn (mapM_ showSubmitStatus) received
   blank
 
+showSubmitStatus :: MonadWidget t m => SubmitStatus -> m ()
+showSubmitStatus Submitted = el "div" $ text "Downloading now"
+showSubmitStatus (Confirmation files) = do
+  elAttr "table" ("class" =: "pure-table") $ do
+    el "thead" $ el "tr" $ el "th" $ text "filename"
+    el "tbody" $ mapM (el "tr" . el "td" . el "link" . text . fromRelFile) files
+  blank
+showSubmitStatus (SubmissionError msg) = el "div" $ text $ unpack msg
+
 createRequest :: (LogSettings, XhrRequestConfig) -> XhrRequest
-createRequest (info, cfg) = xhrRequest "POST" "http://10.102.5.70:8081/submit" cfg'
+createRequest (info, cfg) = xhrRequest "POST" "http://localhost:8081/submit" cfg'
   where
     cfg' = cfg { _xhrRequestConfig_sendData = Just . unpack . decodeUtf8 . toStrict $ encode info }
 

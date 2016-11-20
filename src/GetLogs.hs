@@ -198,6 +198,13 @@ downloadLogs logSettings = do
             case mDest of
               Nothing -> putStrLn $ "Invalid destination: " <> tshow mDest
               Just dest ->
-                runRMachine_ (getNode (encodeUtf8 node) >>> anytime (passthroughK (const $ putStrLn "Logging in to desired node")) >>> login url mgr un pw >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr >>> sourceHttp_ >>> downloadHttp (saveName $ unpack node) >>> tee) [(req, mgr)]
+                runRMachine_ (getNode (encodeUtf8 node)
+                          >>> anytime (passthroughK (const $ putStrLn $ "Logging in to " <> node))
+                          >>> login url mgr un pw
+                          >>> downloadLog logUrlBase (pack $ fromRelFile log) mgr
+                          >>> sourceHttp_
+                          >>> downloadHttp (saveName $ unpack node)
+                          >>> tee
+                             ) [(req, mgr)]
                 where
                   saveName node = fromRelFile (dest </> filename log) <> "." <> node

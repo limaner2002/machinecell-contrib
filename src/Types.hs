@@ -21,7 +21,7 @@ instance ToJSON LogSettings
 instance FromJSON LogSettings
 
 data SubmitStatus
-  = Confirmation [Text]
+  = Confirmation [Path Rel File]
   | Submitted
   | SubmissionError Text
   deriving (Show, Generic)
