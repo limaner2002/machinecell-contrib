@@ -2,10 +2,12 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 
 module MachineUtils
   ( downloadHttp
   , inputCommand
+  , inputCommand'
   , sink
   , createRequest
   , NothingYet (..)
@@ -41,6 +43,7 @@ import Numeric
 import System.Console.ANSI
 import Control.Monad.Base
 import qualified Data.Streaming.Filesystem as F
+import Data.Streaming.Process
 import Data.Time
 import Data.Default
 
@@ -119,7 +122,6 @@ getProgress = go 0
 downloadHttp :: MonadResource m =>
   FilePath -> 
      ProcessA
-       -- (Kleisli m) (Event (Request, Manager)) (Event (), Event ())
      (Kleisli m) (Event (Response BodyReader, ByteString)) (Event (), Event ())
 downloadHttp fp = anytime getTotalSize >>> construct getProgress
   >>> (sampleOn 100000 >>> evMap fst >>> evMap (fromMaybe def) >>> machine showItSink >>> machine (const $ liftIO $ SIO.hFlush stdout))
@@ -221,24 +223,21 @@ sourceDirectory = repeatedlyT kleisli0 go
           yield $ dir </> fp
           loop dir ds
       
-      
-
 inputCommand :: (MonadIO m, Read a) => ProcessA (Kleisli m) (Event ()) (Event a)
-inputCommand = constructT kleisli0 go
+inputCommand = switch pred evt
   where
-    go = do
-      _ <- await
-      input <- lift $ liftIO getLine
-      case input of
-        "end" -> stop
-        _ -> case readMay input of
-          Nothing -> do
-            lift $ liftIO $ putStrLn $ "invalid command: " <> input
-            go
-          Just x -> do
-            yield x
-            go
-
+    -- pred :: (MonadIO m, Read a, Occasional a) => ProcessA (Kleisli m) (Event ()) (a, Event Text)
+    pred :: MonadIO m => ProcessA (Kleisli m) (Event b) (Event a, Event Text)
+    pred = proc evt -> do
+      input <- machine (const $ liftIO $ getLine) >>> evMap asText -< evt
+      returnA -< (noEvent, input)
+    evt :: (MonadIO m, Read a) => Text -> ProcessA (Kleisli m) (Event ()) (Event a)
+    evt "end" = construct stop
+    evt input = case readMay input of
+      Nothing -> errMsg input >>> inputCommand
+      Just cmd -> evMap (const cmd)
+    errMsg cmd = anytime (passthroughK $ const $ putStrLn $ "Invalid command: " <> cmd)
+      
 createRequest :: MonadThrow m => Manager -> ProcessA (Kleisli m) (Event String) (Event (Request, Manager))
 createRequest mgr = constructT kleisli0 $ do
   url <- await
@@ -256,11 +255,11 @@ sampleOn :: (MonadIO m, MonadBase IO m) => Int
   -> ProcessA (Kleisli m) (Event a) (Event a)
 sampleOn ival = proc x -> do
   evt <- every ival -< x
-  evt' <- tee >>> tag -< (x, evt)
+  evt' <- tee >>> onEvent -< (x, evt)
   returnA -< evt'
 
-tag :: Monad m => ProcessA (Kleisli m) (Event (Either a b)) (Event a)
-tag = constructT kleisli0 go
+onEvent :: Monad m => ProcessA (Kleisli m) (Event (Either a b)) (Event a)
+onEvent = constructT kleisli0 go
   where
     go = do
       e <- await
@@ -272,7 +271,7 @@ tag = constructT kleisli0 go
     loop x = do
       mE <- (Just <$> await) `catchP` pure Nothing
       case mE of
-        Nothing -> yield x
+        Nothing -> yield x >> stop
         Just e ->
           case e of
             Left x' -> loop x'
@@ -319,3 +318,33 @@ passthroughK act = proc a -> do
   _ <- Kleisli act -< a
   returnA -< a
 
+-- passthroughM = anytime . passthroughK
+
+getInput :: MonadIO m => ProcessA (Kleisli m) (Event i) (Event Text)
+getInput = anytime (Kleisli $ const $ putStrLn "This is the initial prompt!" >> return "hm!")
+
+input :: MonadIO m => ProcessA (Kleisli m) (Event ()) (Event Text)
+input = anytime $ kleisli0 $ liftIO getLine
+
+checkInput :: (Read a, MonadIO m) => ProcessA (Kleisli m) (Event Text) (InputCmd (Maybe a))
+checkInput = proc txtEvt -> do
+  mTxt <- evMap Just >>> hold Nothing -< txtEvt
+  case mTxt of
+    Nothing -> returnA -< Init
+    Just "end" -> returnA -< End
+    Just txt -> arr readMay >>> arr Val >>> returnA -< txt
+
+data InputCmd a
+  = Init
+  | End
+  | Val a
+
+inputCommand' :: (Read a, MonadIO m) => ProcessA (Kleisli m) (Event ()) (Event a)
+inputCommand' = proc evt -> do
+  input <- input >>> checkInput -< evt
+  case input of
+    Init -> returnA -< noEvent
+    End -> construct stop -< evt
+    (Val Nothing) -> anytime (kleisli0 $ putStrLn "Invalid command") >>> inputCommand -< evt
+    (Val (Just v)) -> 
+      returnA -< v <$ evt

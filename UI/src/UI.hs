@@ -87,9 +87,12 @@ showSubmitStatus Submitted = el "div" $ text "Downloading now"
 showSubmitStatus (Confirmation files) = do
   elAttr "table" ("class" =: "pure-table") $ do
     el "thead" $ el "tr" $ el "th" $ text "filename"
-    el "tbody" $ mapM (el "tr" . el "td" . el "link" . text . fromRelFile) files
+    el "tbody" $ mapM (el "tr" . el "td" . createLink . fromRelFile) files
   blank
 showSubmitStatus (SubmissionError msg) = el "div" $ text $ unpack msg
+
+createLink :: MonadWidget t m => String -> m ()
+createLink val = elAttr "a" ("href" =: val) $ text val
 
 createRequest :: (LogSettings, XhrRequestConfig) -> XhrRequest
 createRequest (info, cfg) = xhrRequest "POST" "http://localhost:8081/submit" cfg'

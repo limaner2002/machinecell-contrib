@@ -74,7 +74,7 @@ getNode nodeName = repeatedlyT kleisli0 go
         True -> yield (key, respBody)
         False -> do
           newReq <- lift $ insertCookies (newCJ respBody) req
-          loop req mgr
+          loop newReq mgr
 
     session = responseCookieJar >>> destroyCookies >>> extractSession
     currNode = session >>> extractNode
@@ -94,7 +94,15 @@ downloadLog_ logBaseUrl logName mgr (key, resp) = do
     cookieJar = responseCookieJar resp
 
 login :: (MonadResource m, MonadThrow m) => String -> Manager -> Text -> Text -> ProcessA (Kleisli m) (Event (ReleaseKey, Response BodyReader)) (Event (ReleaseKey, Response BodyReader))
-login baseUrl mgr un pw = machine (loginReq baseUrl mgr un pw) >>> makeRequest
+login baseUrl mgr un pw = proc input -> do
+  loginRes <- machine (loginReq baseUrl mgr un pw) >>> makeRequest -< input
+  ed <- onEnd -< input
+  logoutRes <- logoutMsg >>> logout >>> printStatus -< (baseUrl, mgr) <$ ed
+  res <- gather -< [loginRes, logoutRes]
+  returnA -< res
+    where
+      logoutMsg = anytime (passthroughK (const $ putStrLn "Logging out"))
+      printStatus = anytime (passthroughK (\(_, resp) -> putStrLn $ "Logged out with status " <> tshow (responseStatus resp)))
 
 loginReq :: (MonadResource m, MonadThrow m) => String -> Manager -> Text -> Text -> (ReleaseKey, Response BodyReader) -> m (Request, Manager)
 loginReq baseUrl mgr un pw (key, resp) = do
@@ -104,6 +112,25 @@ loginReq baseUrl mgr un pw (key, resp) = do
   where
     cookieJar = responseCookieJar resp
     csrfToken = fmap (\(name, value) -> (name, Just value)) (getCSRFToken cookieJar)
+
+logout :: (MonadThrow m, MonadResource m) => ProcessA (Kleisli m) (Event (String, Manager)) (Event (ReleaseKey, Response BodyReader))
+logout = proc input -> do
+  mReq <- evMap fst >>> anytime logoutReq >>> evMap Just >>> hold Nothing -< input
+  mMgr <- evMap snd >>> evMap Just >>> hold Nothing -< input
+  case mReq of
+    Nothing -> returnA -< noEvent
+    Just req -> case mMgr of
+      Nothing -> returnA -< noEvent
+      Just mgr -> do
+        res <- makeRequest -< (req, mgr) <$ input
+        returnA -< res
+
+logoutReq :: MonadThrow m => Kleisli m String Request
+logoutReq = kleisli logoutReq_
+
+logoutReq_ :: MonadThrow m => String -> m Request
+logoutReq_ baseUrl = setRequestHeaders baseHeaders
+  <$> parseUrlThrow (baseUrl <> "/suite/logout")
 
 insertCookies_ :: MonadIO m => Kleisli m (CookieJar, Request) Request
 insertCookies_ = Kleisli (uncurry insertCookies)

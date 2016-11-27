@@ -101,7 +101,9 @@ checkLogSettings logSettings = do
         mDirContents <- liftIO $ mapM (\dest -> runRMachine (sourceDirectory >>> evMap parseRelFile >>> evMap (fmap filename) >>> evMap asList) [fromRelDir dest]) $ logDestination logSettings
         case mDirContents of
           Nothing -> return $ SubmissionError "Could not get the log files"
-          Just dirContents -> return $ Confirmation $ concat dirContents
+          Just dirContents -> do
+            putStrLn $ "Sending " <> tshow dirContents
+            return $ Confirmation $ concat dirContents
 
 serveFile :: Path Rel Dir -> Path Rel File -> Handler BL.ByteString
 serveFile scriptsDir fName = do
