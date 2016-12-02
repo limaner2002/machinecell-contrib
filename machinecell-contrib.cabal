@@ -1,4 +1,4 @@
-name:                machinecell-utils
+name:                machinecell-contrib
 version:             0.1.0.0
 synopsis:            Initial project template from stack
 description:         Please see README.md
@@ -16,10 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     MachineUtils
-                     , GetLogs
                      , ParseCSV
-                     , Server
-                     , Types
   build-depends:       base >= 4.7 && < 5
                      , machinecell
                      , classy-prelude
@@ -46,43 +43,6 @@ library
                      , warp
                      , path
                      , time
-  default-language:    Haskell2010
-
-executable get-logs
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , machinecell-utils
-                     , classy-prelude
-                     , warp
-                     , path
-  default-language:    Haskell2010
-
-executable results
-  hs-source-dirs:      app
-  main-is:             Results.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , machinecell-utils
-                     , classy-prelude
-                     , conduit
-                     , resourcet
-                     , time
-                     , data-default
-                     , mtl
-                     , transformers
-                     , filemanip
-                     , filepath
-  default-language:    Haskell2010
-
-test-suite getlogs
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
-  main-is:             Spec.hs
-  build-depends:       base
-                     , machinecell-utils
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
 source-repository head

@@ -1,16 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE Arrows #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module ParseCSV where
 
-import ClassyPrelude
+import ClassyPrelude hiding (throwM)
 import Control.Arrow
 import Control.Arrow.Machine
 import Data.Attoparsec.Text hiding (take)
 import qualified Data.Attoparsec.Text as AT
+import qualified Data.Attoparsec.ByteString as AB
 import qualified Data.Attoparsec.Types as A
 import Data.Default
+import Control.Monad.Trans.Resource
+import qualified Data.Aeson as AE
 
 data ParseError = ParseError String
   deriving Show
@@ -26,16 +31,28 @@ data CSVSettings = CSVSettings
 instance Default CSVSettings where
   def = CSVSettings ',' '"' '\n'
 
-machineParser :: (MonadThrow m, Monad m1) => A.Parser Text b -> ProcessA (Kleisli m1) (Event Text) (Event (m b))
-machineParser p = constructT kleisli0 $ go (parse p)
+class AttoparsecInput a where
+  parseA :: A.Parser a b -> a -> A.IResult a b
+
+instance AttoparsecInput Text where
+  parseA = AT.parse
+
+instance AttoparsecInput ByteString where
+  parseA = AB.parse
+
+instance MonadThrow AE.Result where
+  throwM e = AE.Error (show e)
+
+machineParser :: (Monoid a, MonoFoldable a, AttoparsecInput a, MonadThrow m, Monad m1) => A.Parser a b -> ProcessA (Kleisli m1) (Event a) (Event (m b))
+machineParser p = constructT kleisli0 $ go (parseA p)
   where
     handleIt end (Done rest x) = do
       yield $ return x
       case onull rest of
         True -> case end of
           True -> return ()
-          False -> go (parse p)
-        False -> handleIt end (parse p rest)
+          False -> go (parseA p)
+        False -> handleIt end (parseA p rest)
     handleIt end (Partial f)
       | end = return ()
       | otherwise = go f
