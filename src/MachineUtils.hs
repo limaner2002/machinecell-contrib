@@ -202,7 +202,6 @@ sourceFile = repeatedlyT kleisli0 go
       case onull x of
         True -> do
           lift $ liftIO $ release key
-          stop
         False -> do
           yield x
           loop key h
