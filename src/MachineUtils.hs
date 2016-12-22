@@ -26,6 +26,10 @@ module MachineUtils
   , sourceFile
   , passthroughK
   , sourceDirectory
+  , count
+  , makeRowNum
+  , RowNum
+  , fromRowNum
   ) where
 
 import ClassyPrelude hiding (first, race_)
@@ -347,3 +351,17 @@ inputCommand' = proc evt -> do
     (Val Nothing) -> anytime (kleisli0 $ putStrLn "Invalid command") >>> inputCommand -< evt
     (Val (Just v)) -> 
       returnA -< v <$ evt
+
+count :: ArrowApply cat => ProcessA cat (Event a) (Event (Int, a))
+count = proc input -> do
+  n <- evMap (const (+1)) >>> accum 0 -< input
+  returnA -< fmap (\x -> (n, x)) input
+
+makeRowNum :: ArrowApply cat => ProcessA cat (Event a) (Event (RowNum, a))
+makeRowNum = count >>> evMap (\(n, x) -> (RowNum n, x))
+
+newtype RowNum = RowNum Int
+  deriving (Show, Eq)
+
+fromRowNum :: RowNum -> Int
+fromRowNum (RowNum n) = n

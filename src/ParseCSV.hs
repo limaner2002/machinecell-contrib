@@ -64,11 +64,12 @@ machineParser p = constructT kleisli0 $ go (parseA p)
 
 parseRow csvSettings = manyTill' (parseCell csvSettings) (endOfLine <|> endOfInput)
 
+                       -- Does not parse escaped quotes correctly. Returns the two quote chars instead of the individual character.
 parseCell :: CSVSettings -> A.Parser Text Text
 parseCell csvSettings = parseQuoted <|> parseValue
   where
-    parseQuoted = char (csvQuote csvSettings) *> takeTill (\c -> c == csvQuote csvSettings || c == newlineChar csvSettings) <* (optional $ char (separator csvSettings))
-    parseValue = takeTill (\c -> c == separator csvSettings || c == newlineChar csvSettings) <* (optional $ char (separator csvSettings))
+    parseQuoted = parseQuote csvSettings *> takeTill (\c -> c == csvQuote csvSettings || isEndOfLine c) <* (parseQuote csvSettings >> (optional $ char (separator csvSettings)))
+    parseValue = takeTill (\c -> c == separator csvSettings || isEndOfLine c) <* (optional $ char (separator csvSettings))
 
 dropHeader :: (MonadThrow m1, Monad m) => ProcessA (Kleisli m) (Event (m1 [Text])) (Event (m1 [Text]))
 dropHeader = repeatedlyT kleisli0 $ do
@@ -82,3 +83,15 @@ dropHeader = repeatedlyT kleisli0 $ do
        Just row -> do
          yield row
          loop
+
+parseQuote :: CSVSettings -> Parser Char
+parseQuote csvSettings = do
+  c1 <- char quoteChar
+  mC2 <- peekChar
+  case mC2 of
+    Nothing -> return c1
+    Just c2 -> case c2 == quoteChar of
+      True -> fail "Quoted!"
+      False -> return c1
+  where
+    quoteChar = csvQuote csvSettings
