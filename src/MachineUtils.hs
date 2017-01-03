@@ -20,6 +20,7 @@ module MachineUtils
   , makeRequest_
   , runRMachine
   , runRMachine_
+  , sourceHttp
   , sourceHttp_
   , sinkFile
   , sinkFile_
@@ -146,7 +147,7 @@ makeRequest_ = proc input -> do
   returnA -< x
 
 sourceHttp_ :: MonadResource m => ProcessA (Kleisli m) (Event (ReleaseKey, Response BodyReader)) (Event (Response BodyReader, ByteString))
-sourceHttp_ = constructT kleisli0 go
+sourceHttp_ = repeatedlyT kleisli0 go
   where
     go = do
       (key, res) <- await
@@ -186,7 +187,7 @@ sinkFile_ = tee >>> (constructT kleisli0 $ go Nothing)
               openNext fp
         Right dta ->
           case mK of
-            Nothing -> undefined
+            Nothing -> fail "There is no release key? This is most likely a bug."
             Just (key, handle) -> do
               lift . liftIO $ hPut handle dta
               go $ Just (key, handle)
