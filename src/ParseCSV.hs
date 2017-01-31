@@ -62,6 +62,28 @@ machineParser p = constructT kleisli0 $ go (parseA p)
       let p = parser txt
       handleIt (onull txt) p
 
+machineParser' :: (Monoid a, MonoFoldable a, AttoparsecInput a, MonadThrow m) => A.Parser a b -> ProcessA (Kleisli m) (Event a) (Event b)
+machineParser' p = constructT kleisli0 $ go (parseA p)
+  where
+    handleIt end (Done rest x) = do
+      x' <- lift $ return x
+      yield x'
+      case onull rest of
+        True -> case end of
+          True -> return ()
+          False -> go (parseA p)
+        False -> handleIt end (parseA p rest)
+    handleIt end (Partial f)
+      | end = return ()
+      | otherwise = go f
+    handleIt end (Fail lo x s) = do
+      s' <- lift $ throwM $ ParseError s
+      yield s'
+    go parser = do
+      txt <- await `catchP` (return mempty)
+      let p = parser txt
+      handleIt (onull txt) p
+
 parseRow csvSettings = manyTill' (parseCell csvSettings) (endOfLine <|> endOfInput)
 
                        -- Does not parse escaped quotes correctly. Returns the two quote chars instead of the individual character.

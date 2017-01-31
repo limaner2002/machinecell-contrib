@@ -6,6 +6,7 @@
 
 module MachineUtils
   ( downloadHttp
+  , downloadHttp_
   , inputCommand
   , inputCommand'
   , sink
@@ -31,6 +32,10 @@ module MachineUtils
   , makeRowNum
   , RowNum
   , fromRowNum
+  , sourceSocket
+  , mergeEvents
+  , showItSink
+  , blockingSource'
   ) where
 
 import ClassyPrelude hiding (first, race_)
@@ -57,11 +62,15 @@ sink act = repeatedlyT kleisli0 $ do
   x <- await
   lift $ act x
 
-showItSink x = do
+showItSink_ :: (Show a, MonadIO m) => a -> m ()
+showItSink_ x = do
   liftIO $ do
     clearLine
     setCursorColumn 0
   putStr $ tshow x
+
+showItSink :: (Show a, MonadIO m) => ProcessA (Kleisli m) (Event a) (Event ())
+showItSink = machine showItSink_ >>> machine (const $ liftIO $ SIO.hFlush stdout)
 
 sourceListen :: NS.Socket -> ProcessA (Kleisli IO) (Event ()) (Event (Socket, NS.SockAddr))
 sourceListen sock = repeatedlyT kleisli0 $ do
@@ -69,12 +78,11 @@ sourceListen sock = repeatedlyT kleisli0 $ do
   accepted <- lift $ NS.accept sock
   yield accepted
 
-sourceSocket :: ProcessA (Kleisli IO) (Event (Socket, NS.SockAddr)) (Event ByteString)
+sourceSocket :: ProcessA (Kleisli IO) (Event Socket) (Event ByteString)
 sourceSocket = constructT kleisli0 go
   where
     go = do
-      (sock, addr) <- await
-      lift $ putStrLn $ "Accepted connection from " <> tshow addr
+      sock <- await
       loop sock
     loop sock = do
       bs <- lift $ SN.safeRecv sock 4096
@@ -86,6 +94,12 @@ sourceSocket = constructT kleisli0 go
         else do
           yield bs
           loop sock
+
+connectSocket_ :: MonadIO m => NS.AddrInfo -> m Socket
+connectSocket_ addr = liftIO $ do
+  sock <- NS.socket (NS.addrFamily addr) NS.Stream NS.defaultProtocol
+  NS.connect sock (NS.addrAddress addr)
+  return sock
 
 decodeIt :: ArrowApply a => ProcessA a (Event ByteString) (Event Text)
 decodeIt = repeatedly $ do
@@ -124,13 +138,19 @@ getProgress = go 0
       yield (DownloadProgress <$> totalSize <*> pure (SoFar soFar), bs)
       go soFar
 
+downloadHttp_ :: MonadResource m =>
+     ProcessA
+     (Kleisli m) (Event (Response BodyReader, ByteString)) (Event DownloadProgress, Event ByteString)
+downloadHttp_ = anytime getTotalSize >>> construct getProgress
+  >>> (sampleOn 100000 >>> evMap fst >>> evMap (fromMaybe def))
+  &&& evMap snd
+
 downloadHttp :: MonadResource m =>
-  FilePath -> 
+  FilePath ->
      ProcessA
      (Kleisli m) (Event (Response BodyReader, ByteString)) (Event (), Event ())
-downloadHttp fp = anytime getTotalSize >>> construct getProgress
-  >>> (sampleOn 100000 >>> evMap fst >>> evMap (fromMaybe def) >>> machine showItSink >>> machine (const $ liftIO $ SIO.hFlush stdout))
-  &&& (evMap snd >>> sinkFile fp)
+downloadHttp fp = downloadHttp_  >>> showItSink
+        	                 *** (sinkFile fp)
 
 f :: ArrowApply a => ProcessA a (Event Integer) (Event Integer)
 f = proc x ->
@@ -366,3 +386,29 @@ newtype RowNum = RowNum Int
 
 fromRowNum :: RowNum -> Int
 fromRowNum (RowNum n) = n
+
+-- Merge two events into one and fire when the second event fires
+mergeEvents :: ArrowApply a => ProcessA a (Event b, Event c) (Event (b, c))
+mergeEvents = proc (evtA, evtB) -> do
+  mA <- evMap Just >>> hold Nothing -< evtA
+  mB <- evMap Just >>> hold Nothing -< evtB
+  case f mA mB of
+    Nothing -> returnA -< noEvent
+    Just (a, b) -> returnA -< (a, b) <$ evtB
+  where
+    f mA mB = (,) <$> mA <*> mB
+
+-- merge :: ArrowApply cat => ProcessA cat (Event a, Event b) (Event (a, b))
+-- merge = proc (evtA, evtB) -> do
+--   mA <- evMap Just >>> hold Nothing -< evtA
+--   mB <- evMap Just >>> hold Nothing -< evtB
+--   case mA of
+--     Nothing -> returnA -< noEvent
+--     Just a -> case mB of
+--       Nothing -> returnA -< noEvent
+--       Just b -> returnA -< (a, b) <$ evtB
+
+blockingSource' :: (ArrowApply a, MonoFoldable mono) => ProcessA a (Event mono) (Event (Element mono))
+blockingSource' = repeatedly $ do
+  l <- await
+  mapM_ yield l
