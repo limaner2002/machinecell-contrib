@@ -3,6 +3,7 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE Strict #-}
 
 module ParseCSV where
 

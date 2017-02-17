@@ -3,6 +3,7 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE Strict #-}
 
 module MachineUtils
   ( downloadHttp
@@ -38,7 +39,7 @@ module MachineUtils
   , blockingSource'
   ) where
 
-import ClassyPrelude hiding (first, race_)
+import ClassyPrelude hiding (first, race_, hPut, hGetChunk)
 import Control.Arrow.Machine
 import Control.Arrow
 import Network
@@ -56,6 +57,7 @@ import qualified Data.Streaming.Filesystem as F
 import Data.Streaming.Process
 import Data.Time
 import Data.Default
+import Data.IOData
 
 sink :: (Show a, MonadIO m) => (a -> m ()) -> ProcessA (Kleisli m) (Event a) (Event ())
 sink act = repeatedlyT kleisli0 $ do
