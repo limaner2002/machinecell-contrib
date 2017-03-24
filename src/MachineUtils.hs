@@ -35,6 +35,8 @@ module MachineUtils
   , fromRowNum
   , sourceSocket
   , mergeEvents
+  , mergeEventsL
+  , mergeEventsR
   , showItSink
   , blockingSource'
   ) where
@@ -214,7 +216,7 @@ sinkFile_ = tee >>> (constructT kleisli0 $ go Nothing)
               lift . liftIO $ hPut handle dta
               go $ Just (key, handle)
     openNext fp = do
-      k <- lift $ allocate (putStrLn "Opening file" >> SIO.openFile fp SIO.WriteMode) (\h -> putStrLn "Closing sinkfile handle" >> SIO.hFlush stdout >> SIO.hClose h)
+      k <- lift $ allocate (SIO.openFile fp SIO.WriteMode) SIO.hClose
       go $ Just k
 
 sourceFile :: (MonoFoldable a, MonadResource m, IOData a) => ProcessA (Kleisli m) (Event FilePath) (Event a)
@@ -389,9 +391,20 @@ newtype RowNum = RowNum Int
 fromRowNum :: RowNum -> Int
 fromRowNum (RowNum n) = n
 
--- Merge two events into one and fire when the second event fires
-mergeEvents :: ArrowApply a => ProcessA a (Event b, Event c) (Event (b, c))
-mergeEvents = proc (evtA, evtB) -> do
+-- Merge two events into one and fire when the left event fires
+mergeEventsL :: ArrowApply a => ProcessA a (Event b, Event c) (Event (b, c))
+mergeEventsL = proc (evtA, evtB) -> do
+  mA <- evMap Just >>> hold Nothing -< evtA
+  mB <- evMap Just >>> hold Nothing -< evtB
+  case f mA mB of
+    Nothing -> returnA -< noEvent
+    Just (a, b) -> returnA -< (a, b) <$ evtA
+  where
+    f mA mB = (,) <$> mA <*> mB
+
+-- Merge two events into one and fire when the right event fires
+mergeEventsR :: ArrowApply a => ProcessA a (Event b, Event c) (Event (b, c))
+mergeEventsR = proc (evtA, evtB) -> do
   mA <- evMap Just >>> hold Nothing -< evtA
   mB <- evMap Just >>> hold Nothing -< evtB
   case f mA mB of
@@ -400,15 +413,27 @@ mergeEvents = proc (evtA, evtB) -> do
   where
     f mA mB = (,) <$> mA <*> mB
 
--- merge :: ArrowApply cat => ProcessA cat (Event a, Event b) (Event (a, b))
--- merge = proc (evtA, evtB) -> do
---   mA <- evMap Just >>> hold Nothing -< evtA
---   mB <- evMap Just >>> hold Nothing -< evtB
---   case mA of
---     Nothing -> returnA -< noEvent
---     Just a -> case mB of
---       Nothing -> returnA -< noEvent
---       Just b -> returnA -< (a, b) <$ evtB
+-- Merge two events into one and fire when the left event fires
+mergeAccumL :: (ArrowApply a, Monoid c, Semigroup c) => ProcessA a (Event b, Event c) (Event (b, c))
+mergeAccumL = proc (evtA, evtB) -> do
+  mA <- evMap Just >>> hold Nothing -< evtA
+  acc <- evMap (<>) >>> accum mempty -< evtB
+  case mA of
+    Nothing -> returnA -< noEvent
+    Just a -> returnA -< (a, acc) <$ evtA
+
+-- Merge two events into one and fire when either event fires
+mergeEvents :: ArrowApply a => ProcessA a (Event b, Event c) (Event (b, c))
+mergeEvents = proc (evtA, evtB) -> do
+  mA <- evMap Just >>> hold Nothing -< evtA
+  mB <- evMap Just >>> hold Nothing -< evtB
+  case f mA mB of
+    Nothing -> returnA -< noEvent
+    Just vals -> do
+      e <- gather -< [() <$ evtA, () <$ evtB]
+      returnA -< vals <$ e
+  where
+    f mA mB = (,) <$> mA <*> mB
 
 blockingSource' :: (ArrowApply a, MonoFoldable mono) => ProcessA a (Event mono) (Event (Element mono))
 blockingSource' = repeatedly $ do
